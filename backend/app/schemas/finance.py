@@ -11,6 +11,7 @@ class AccountRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    institution_id: UUID
     institution_name: str
     account_name: str
     account_type: AccountType
@@ -23,9 +24,12 @@ class AccountRead(BaseModel):
 
 
 class CategoryRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     name: str
     parent_id: UUID | None
+    account_id: UUID | None
     type: CategoryType
     icon: str | None
     is_system: bool
@@ -67,6 +71,12 @@ class OverviewRead(BaseModel):
 class TransactionCategoryUpdate(BaseModel):
     category_id: UUID
     apply_to_similar: bool = False
+
+
+class CategoryCreate(BaseModel):
+    account_id: UUID
+    name: str = Field(min_length=1, max_length=100)
+    type: CategoryType
 
 
 class TransactionTagsUpdate(BaseModel):

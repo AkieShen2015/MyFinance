@@ -1,26 +1,30 @@
 from datetime import date
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Response, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from app.api.dependencies.current_user import CurrentUser, DatabaseSession
 from app.models.enums import TransactionType
 from app.repositories.finance_read import (
     get_overview,
+    get_transaction,
     list_accounts,
     list_categories,
     list_transactions,
 )
 from app.schemas.finance import (
     AccountRead,
+    CategoryCreate,
     CategoryRead,
     OverviewRead,
     TransactionCategoryUpdate,
     TransactionPage,
+    TransactionRead,
     TransactionTagsUpdate,
 )
+from app.services.categories import create_or_match_category
 from app.services.transaction_updates import replace_tags, update_category
 
 router = APIRouter(tags=["finance"])
@@ -41,6 +45,22 @@ def categories(db: DatabaseSession, user: CurrentUser) -> list[CategoryRead]:
     return list_categories(db, user.id)
 
 
+@router.post("/categories", response_model=CategoryRead)
+def create_category(
+    payload: CategoryCreate,
+    db: DatabaseSession,
+    user: CurrentUser,
+) -> CategoryRead:
+    category = create_or_match_category(
+        db,
+        user.id,
+        payload.account_id,
+        payload.name,
+        payload.type,
+    )
+    return CategoryRead.model_validate(category)
+
+
 @router.get("/transactions", response_model=TransactionPage)
 def transactions(
     db: DatabaseSession,
@@ -57,6 +77,8 @@ def transactions(
     amount_min: Decimal | None = None,
     amount_max: Decimal | None = None,
     search: Annotated[str | None, Query(max_length=200)] = None,
+    sort_by: Literal["transaction_date", "amount", "merchant"] = "transaction_date",
+    sort_order: Literal["asc", "desc"] = "desc",
 ) -> TransactionPage:
     return list_transactions(
         db,
@@ -73,7 +95,24 @@ def transactions(
         amount_min=amount_min,
         amount_max=amount_max,
         search=search,
+        sort_by=sort_by,
+        sort_order=sort_order,
     )
+
+
+@router.get("/transactions/{transaction_id}", response_model=TransactionRead)
+def transaction(
+    transaction_id: UUID,
+    db: DatabaseSession,
+    user: CurrentUser,
+) -> TransactionRead:
+    item = get_transaction(db, user.id, transaction_id)
+    if item is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found",
+        )
+    return item
 
 
 @router.patch("/transactions/{transaction_id}/category", status_code=status.HTTP_204_NO_CONTENT)

@@ -143,13 +143,20 @@ class Category(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "categories"
     __table_args__ = (
         UniqueConstraint(
-            "user_id", "parent_id", "name", name="uq_category_owner_parent_name"
+            "user_id",
+            "account_id",
+            "parent_id",
+            "name",
+            name="uq_category_owner_account_parent_name",
+            postgresql_nulls_not_distinct=True,
         ),
         CheckConstraint(
-            "(is_system = true AND user_id IS NULL) OR (is_system = false AND user_id IS NOT NULL)",
+            "(is_system = true AND user_id IS NULL AND account_id IS NULL) OR "
+            "(is_system = false AND user_id IS NOT NULL AND account_id IS NOT NULL)",
             name="ck_category_system_owner",
         ),
         Index("ix_categories_user_parent", "user_id", "parent_id"),
+        Index("ix_categories_account_name", "account_id", "name"),
     )
 
     name: Mapped[str] = mapped_column(String(100))
@@ -160,6 +167,9 @@ class Category(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     icon: Mapped[str | None] = mapped_column(String(100))
     is_system: Mapped[bool] = mapped_column(Boolean, default=False)
     user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    account_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE")
+    )
 
     parent: Mapped["Category | None"] = relationship(
         remote_side="Category.id", back_populates="children"

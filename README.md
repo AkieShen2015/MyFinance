@@ -53,9 +53,9 @@ The Compose credentials are development-only defaults. Set `APP_SECRET_KEY` and
 
 ## Mock finance data
 
-After applying migrations, populate the development database with two mock banks,
-three accounts, system categories, merchants, and twelve months of deterministic
-transactions:
+After applying migrations, populate the development database with 14 mock bank
+institutions, 15 accounts, system and account-scoped categories, merchants, and
+twelve months of deterministic transactions:
 
 ```powershell
 docker compose exec backend python -m app.seed

@@ -14,18 +14,21 @@ default, with explicit service-level privacy deletion workflows.
   expiry and last successful sync.
 - `accounts` belongs to a user, connection and institution, unique on
   `(bank_connection_id, external_account_id)`.
-- `merchants` stores canonical merchants. `merchant_aliases` stores normalised
-  match values, resolution method and confidence without overwriting raw text.
+- `merchants` stores canonical merchant identities. Deterministic normalisation
+  removes payment/reference noise and resolves maintained local aliases without
+  overwriting the transaction's original description.
 - `categories` is hierarchical. System rows have no owner; custom rows have a
-  `user_id`. Parent/child ownership and compatible category type are validated.
+  `user_id` and `account_id`. Services enforce that account-scoped categories
+  can only be assigned to transactions from that account.
 - `transactions` belongs to an account and optionally a merchant/category, unique
   on `(account_id, external_transaction_id)`. It stores transaction and posted
   dates, original and normalised descriptions, decimal amount/currency, canonical
   type/status, provider category, and protected raw data.
 - `transaction_tags` belongs to a user and is unique on `(user_id, name)`.
   `transaction_tag_links` has a composite primary key `(transaction_id, tag_id)`.
-- `categorisation_rules` belongs to a user, has typed matching criteria, optional
-  merchant, category, priority and enabled state.
+- `categorisation_rules` belongs to a user, has typed merchant, exact-description,
+  description-contains or provider-category criteria, plus category, priority and
+  enabled state. Remembered user corrections take priority during later syncs.
 - `transaction_category_changes` records old/new category, actor and whether a
   similar-transaction rule was requested.
 - `recurring_series` stores merchant/category, cadence, expected amount, tolerance,
@@ -53,4 +56,3 @@ default, with explicit service-level privacy deletion workflows.
 - `sync_jobs(bank_connection_id, created_at desc)`
 
 Indexes will be adjusted only after real query patterns are measured.
-

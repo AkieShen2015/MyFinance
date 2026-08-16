@@ -26,8 +26,20 @@ class MockBankProvider:
         self._institutions = (
             ProviderInstitution("mock-anz", "ANZ"),
             ProviderInstitution("mock-commbank", "Commonwealth Bank"),
+            ProviderInstitution("mock-nab", "NAB"),
+            ProviderInstitution("mock-westpac", "Westpac"),
+            ProviderInstitution("mock-ing", "ING"),
+            ProviderInstitution("mock-hsbc", "HSBC"),
+            ProviderInstitution("mock-bankwest", "Bankwest"),
+            ProviderInstitution("mock-st-george", "St.George"),
+            ProviderInstitution("mock-latitude", "Latitude"),
+            ProviderInstitution("mock-macquarie", "Macquarie Bank"),
+            ProviderInstitution("mock-suncorp", "Suncorp Bank"),
+            ProviderInstitution("mock-bendigo", "Bendigo Bank"),
+            ProviderInstitution("mock-boq", "Bank of Queensland"),
+            ProviderInstitution("mock-ubank", "ubank"),
         )
-        self._accounts = (
+        self._accounts: tuple[ProviderAccount, ...] = (
             ProviderAccount(
                 "anz-everyday",
                 "mock-anz",
@@ -56,6 +68,138 @@ class MockBankProvider:
                 Decimal("6739.69"),
             ),
         )
+        additional_accounts: tuple[
+            tuple[str, str, str, AccountType, str, str, str], ...
+        ] = (
+            (
+                "anz-business",
+                "mock-nab",
+                "NAB Reward Saver",
+                AccountType.TRANSACTION,
+                "•••• 7643",
+                "9250.80",
+                "9250.80",
+            ),
+            (
+                "anz-progress-saver",
+                "mock-westpac",
+                "Westpac Choice",
+                AccountType.SAVINGS,
+                "•••• 2208",
+                "6350.25",
+                "6350.25",
+            ),
+            (
+                "anz-travel",
+                "mock-ing",
+                "Orange Everyday",
+                AccountType.TRANSACTION,
+                "•••• 3374",
+                "2180.40",
+                "2180.40",
+            ),
+            (
+                "anz-offset",
+                "mock-hsbc",
+                "Everyday Global Account",
+                AccountType.TRANSACTION,
+                "•••• 6159",
+                "32400.00",
+                "32400.00",
+            ),
+            (
+                "anz-investing-cash",
+                "mock-bankwest",
+                "Easy Transaction Account",
+                AccountType.TRANSACTION,
+                "•••• 4826",
+                "5780.15",
+                "5780.15",
+            ),
+            (
+                "anz-online-business-saver",
+                "mock-st-george",
+                "Complete Freedom",
+                AccountType.TRANSACTION,
+                "•••• 1085",
+                "14820.60",
+                "14820.60",
+            ),
+            (
+                "cba-smart-access",
+                "mock-latitude",
+                "28° Global Platinum",
+                AccountType.CREDIT_CARD,
+                "•••• 4920",
+                "3460.18",
+                "3460.18",
+            ),
+            (
+                "cba-netbank-saver",
+                "mock-macquarie",
+                "Transaction Account",
+                AccountType.TRANSACTION,
+                "•••• 7314",
+                "11250.75",
+                "11250.75",
+            ),
+            (
+                "cba-goalsaver",
+                "mock-suncorp",
+                "Growth Saver",
+                AccountType.SAVINGS,
+                "•••• 8453",
+                "8040.20",
+                "8040.20",
+            ),
+            (
+                "cba-complete-access",
+                "mock-bendigo",
+                "Easy Money",
+                AccountType.TRANSACTION,
+                "•••• 2697",
+                "1965.32",
+                "1965.32",
+            ),
+            (
+                "cba-low-fee-card",
+                "mock-boq",
+                "Future Saver",
+                AccountType.SAVINGS,
+                "•••• 9136",
+                "-480.64",
+                "3519.36",
+            ),
+            (
+                "cba-business-transaction",
+                "mock-ubank",
+                "Spend Account",
+                AccountType.TRANSACTION,
+                "•••• 6041",
+                "12640.90",
+                "12640.90",
+            ),
+        )
+        self._accounts += tuple(
+            ProviderAccount(
+                external_id,
+                institution_id,
+                name,
+                account_type,
+                masked_number,
+                Decimal(current_balance),
+                Decimal(available_balance),
+            )
+            for (
+                external_id,
+                institution_id,
+                name,
+                account_type,
+                masked_number,
+                current_balance,
+                available_balance,
+            ) in additional_accounts
+        )
         self._transactions = self._build_transactions()
 
     async def get_institutions(self) -> tuple[ProviderInstitution, ...]:
@@ -65,10 +209,13 @@ class MockBankProvider:
         return f"mock-consent:{user_reference}"
 
     async def get_connections(self, user_reference: str) -> tuple[str, ...]:
-        return (f"mock-connection:{user_reference}:anz", f"mock-connection:{user_reference}:cba")
+        return tuple(
+            f"mock-connection:{user_reference}:{institution.external_id.removeprefix('mock-')}"
+            for institution in self._institutions
+        )
 
     async def get_accounts(self, connection_id: str) -> tuple[ProviderAccount, ...]:
-        institution_id = "mock-anz" if connection_id.endswith(":anz") else "mock-commbank"
+        institution_id = f"mock-{connection_id.rsplit(':', maxsplit=1)[-1]}"
         return tuple(a for a in self._accounts if a.institution_external_id == institution_id)
 
     async def get_transactions(
@@ -83,8 +230,11 @@ class MockBankProvider:
         return TransactionPage(account_transactions[start:end], next_cursor)
 
     async def refresh_connection(self, connection_id: str) -> None:
-        if not connection_id.startswith("mock-connection:") or not connection_id.endswith(
-            (":anz", ":cba")
+        institution_id = f"mock-{connection_id.rsplit(':', maxsplit=1)[-1]}"
+        institution_ids = {institution.external_id for institution in self._institutions}
+        if (
+            not connection_id.startswith("mock-connection:")
+            or institution_id not in institution_ids
         ):
             raise ValueError("Unknown mock connection")
 
@@ -252,6 +402,47 @@ class MockBankProvider:
                         "Electronics",
                     )
                 )
+        current_month = self.anchor.strftime("%Y%m")
+        rows.extend(
+            (
+                self._tx(
+                    current_month,
+                    "canberra-cat-vet",
+                    "anz-everyday",
+                    5,
+                    "CANBERRA CAT VET BELCONNEN 035",
+                    Decimal("-386.00"),
+                    "Veterinary",
+                ),
+                self._tx(
+                    current_month,
+                    "zlbel",
+                    "anz-everyday",
+                    7,
+                    "ZLBEL PTY LTD WESTON",
+                    Decimal("-19.53"),
+                    None,
+                ),
+                self._tx(
+                    current_month,
+                    "kwafood",
+                    "cba-credit",
+                    9,
+                    "SQ *KWAFOOD 1982 CANBERRA",
+                    Decimal("-22.79"),
+                    "Restaurants",
+                ),
+                self._tx(
+                    current_month,
+                    "yijia-grocery",
+                    "anz-everyday",
+                    11,
+                    "YIJIA ASIAN GROCERY",
+                    Decimal("-55.29"),
+                    "Groceries",
+                ),
+            )
+        )
         return tuple(
             sorted(
                 rows,
@@ -271,7 +462,7 @@ class MockBankProvider:
         day: int,
         description: str,
         amount: Decimal,
-        category: str,
+        category: str | None,
     ) -> ProviderTransaction:
         month_start = date(int(month_key[:4]), int(month_key[4:]), 1)
         transaction_date = month_start.replace(day=min(day, 28))

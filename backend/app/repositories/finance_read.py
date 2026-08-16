@@ -1,5 +1,6 @@
 from datetime import date
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
@@ -34,6 +35,7 @@ def list_accounts(db: Session, user_id: UUID) -> list[AccountRead]:
     return [
         AccountRead(
             id=account.id,
+            institution_id=institution.id,
             institution_name=institution.name,
             account_name=account.account_name,
             account_type=account.account_type,
@@ -59,6 +61,7 @@ def list_categories(db: Session, user_id: UUID) -> list[CategoryRead]:
             id=item.id,
             name=item.name,
             parent_id=item.parent_id,
+            account_id=item.account_id,
             type=item.type,
             icon=item.icon,
             is_system=item.is_system,
@@ -83,6 +86,8 @@ def list_transactions(
     amount_min: Decimal | None = None,
     amount_max: Decimal | None = None,
     search: str | None = None,
+    sort_by: Literal["transaction_date", "amount", "merchant"] = "transaction_date",
+    sort_order: Literal["asc", "desc"] = "desc",
 ) -> TransactionPage:
     filters = [Account.user_id == user_id]
     if account_id:
@@ -118,6 +123,12 @@ def list_transactions(
         .outerjoin(Merchant, Merchant.id == Transaction.merchant_id)
         .where(*filters)
     ) or 0
+    sort_column = {
+        "transaction_date": Transaction.transaction_date,
+        "amount": Transaction.amount,
+        "merchant": func.coalesce(Merchant.display_name, Transaction.description),
+    }[sort_by]
+    order_expression = sort_column.asc() if sort_order == "asc" else sort_column.desc()
     rows = db.execute(
         select(Transaction, Account, Institution, Merchant, Category)
         .join(Account, Account.id == Transaction.account_id)
@@ -126,7 +137,7 @@ def list_transactions(
         .outerjoin(Category, Category.id == Transaction.category_id)
         .options(selectinload(Transaction.tags))
         .where(*filters)
-        .order_by(Transaction.transaction_date.desc(), Transaction.id)
+        .order_by(order_expression, Transaction.id)
         .limit(limit)
         .offset(offset)
     ).all()
@@ -151,6 +162,38 @@ def list_transactions(
         for transaction, account, institution, merchant, category in rows
     ]
     return TransactionPage(items=items, total=total, limit=limit, offset=offset)
+
+
+def get_transaction(db: Session, user_id: UUID, transaction_id: UUID) -> TransactionRead | None:
+    row = db.execute(
+        select(Transaction, Account, Institution, Merchant, Category)
+        .join(Account, Account.id == Transaction.account_id)
+        .join(Institution, Institution.id == Account.institution_id)
+        .outerjoin(Merchant, Merchant.id == Transaction.merchant_id)
+        .outerjoin(Category, Category.id == Transaction.category_id)
+        .options(selectinload(Transaction.tags))
+        .where(Transaction.id == transaction_id, Account.user_id == user_id)
+    ).one_or_none()
+    if row is None:
+        return None
+    transaction, account, institution, merchant, category = row
+    return TransactionRead(
+        id=transaction.id,
+        account_id=account.id,
+        category_id=transaction.category_id,
+        merchant_id=transaction.merchant_id,
+        transaction_date=transaction.transaction_date,
+        institution_name=institution.name,
+        account_name=account.account_name,
+        merchant_name=merchant.display_name if merchant else None,
+        description=transaction.description,
+        category_name=category.name if category else None,
+        tags=sorted((tag.name for tag in transaction.tags), key=str.casefold),
+        transaction_type=transaction.transaction_type,
+        amount=transaction.amount,
+        currency=transaction.currency,
+        pending=transaction.pending,
+    )
 
 
 def get_overview(db: Session, user_id: UUID) -> OverviewRead:

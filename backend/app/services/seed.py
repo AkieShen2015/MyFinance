@@ -15,13 +15,16 @@ from app.models.finance import (
     Transaction,
     User,
 )
-from app.services.transaction_processing import normalise_description
+from app.services.categorisation import category_id_from_saved_rules
+from app.services.transaction_processing import normalise_description, normalise_merchant
 
 SYSTEM_CATEGORIES: dict[str, tuple[CategoryType, tuple[str, ...]]] = {
-    "Food": (CategoryType.EXPENSE, ("Groceries", "Restaurants", "Takeaway")),
+    "Food & Restaurant": (CategoryType.EXPENSE, ()),
+    "Groceries": (CategoryType.EXPENSE, ()),
+    "Takeaway": (CategoryType.EXPENSE, ()),
     "Transport": (CategoryType.EXPENSE, ("Fuel", "Public Transport", "Rideshare")),
     "Housing": (CategoryType.EXPENSE, ("Rent", "Mortgage", "Utilities")),
-    "Pet": (CategoryType.EXPENSE, ("Vet", "Food", "Medication", "Insurance", "Supplies")),
+    "Pet": (CategoryType.EXPENSE, ()),
     "Shopping": (CategoryType.EXPENSE, ("Electronics",)),
     "Health": (CategoryType.EXPENSE, ("Fitness",)),
     "Subscriptions": (CategoryType.EXPENSE, ()),
@@ -36,12 +39,12 @@ PROVIDER_CATEGORY_MAP = {
     "Subscriptions": "Subscriptions",
     "Fitness": "Fitness",
     "Utilities": "Utilities",
-    "Restaurants": "Restaurants",
+    "Restaurants": "Food & Restaurant",
     "Public Transport": "Public Transport",
     "Fuel": "Fuel",
     "Interest": "Interest",
-    "Pet Supplies": "Supplies",
-    "Veterinary": "Vet",
+    "Pet Supplies": "Pet",
+    "Veterinary": "Pet",
     "Electronics": "Electronics",
 }
 
@@ -102,13 +105,13 @@ def seed_system_categories(session: Session) -> dict[str, Category]:
         categories[parent_name] = parent
         for child_name in children:
             child = _get_or_create_category(session, child_name, category_type, parent)
-            categories[child_name if child_name != "Food" else "Pet Food"] = child
+            categories[child_name] = child
     return categories
 
 
 def _merchant_for_description(
     session: Session, description: str, cache: dict[str, Merchant]
-) -> Merchant | None:
+) -> Merchant:
     upper_description = description.upper()
     for match, (canonical_name, display_name, merchant_type) in MERCHANTS.items():
         if match not in upper_description:
@@ -128,7 +131,22 @@ def _merchant_for_description(
             session.flush()
         cache[canonical_name] = merchant
         return merchant
-    return None
+    identity = normalise_merchant(description)
+    merchant = cache.get(identity.canonical_name)
+    if merchant is None:
+        merchant = session.scalar(
+            select(Merchant).where(Merchant.canonical_name == identity.canonical_name)
+        )
+    if merchant is None:
+        merchant = Merchant(
+            canonical_name=identity.canonical_name,
+            display_name=identity.display_name,
+            merchant_type=identity.merchant_type,
+        )
+        session.add(merchant)
+        session.flush()
+    cache[identity.canonical_name] = merchant
+    return merchant
 
 
 async def seed_mock_data(session: Session, email: str = "demo@example.com") -> SeedResult:
@@ -162,7 +180,7 @@ async def seed_mock_data(session: Session, email: str = "demo@example.com") -> S
 
     accounts: dict[str, Account] = {}
     for connection_id in await provider.get_connections("demo-user"):
-        institution_external_id = "mock-anz" if connection_id.endswith(":anz") else "mock-commbank"
+        institution_external_id = f"mock-{connection_id.rsplit(':', maxsplit=1)[-1]}"
         institution = institutions[institution_external_id]
         connection = session.scalar(
             select(BankConnection).where(
@@ -185,7 +203,7 @@ async def seed_mock_data(session: Session, email: str = "demo@example.com") -> S
         for provider_account in await provider.get_accounts(connection_id):
             account = session.scalar(
                 select(Account).where(
-                    Account.bank_connection_id == connection.id,
+                    Account.user_id == user.id,
                     Account.external_account_id == provider_account.external_id,
                 )
             )
@@ -204,6 +222,15 @@ async def seed_mock_data(session: Session, email: str = "demo@example.com") -> S
                 )
                 session.add(account)
                 session.flush()
+            else:
+                account.bank_connection_id = connection.id
+                account.institution_id = institution.id
+                account.account_name = provider_account.name
+                account.account_type = provider_account.account_type
+                account.masked_account_number = provider_account.masked_account_number
+                account.currency = provider_account.currency
+                account.current_balance = provider_account.current_balance
+                account.available_balance = provider_account.available_balance
             accounts[provider_account.external_id] = account
 
     inserted = 0
@@ -221,15 +248,41 @@ async def seed_mock_data(session: Session, email: str = "demo@example.com") -> S
                     )
                 )
                 if existing is not None:
+                    merchant = _merchant_for_description(
+                        session, provider_transaction.description, merchant_cache
+                    )
+                    existing.description = provider_transaction.description
                     existing.normalised_description = normalise_description(
-                        existing.description
+                        provider_transaction.description
                     ).value
+                    existing.merchant_id = merchant.id
+                    saved_category_id = category_id_from_saved_rules(
+                        session,
+                        user.id,
+                        account_id=account.id,
+                        merchant_id=merchant.id,
+                        normalised_description=existing.normalised_description,
+                        provider_category=provider_transaction.provider_category,
+                    )
+                    if saved_category_id is not None:
+                        existing.category_id = saved_category_id
                     continue
                 merchant = _merchant_for_description(
                     session, provider_transaction.description, merchant_cache
                 )
+                normalised_description = normalise_description(
+                    provider_transaction.description
+                ).value
                 category_name = PROVIDER_CATEGORY_MAP.get(
                     provider_transaction.provider_category or "", "Other"
+                )
+                saved_category_id = category_id_from_saved_rules(
+                    session,
+                    user.id,
+                    account_id=account.id,
+                    merchant_id=merchant.id,
+                    normalised_description=normalised_description,
+                    provider_category=provider_transaction.provider_category,
                 )
                 session.add(
                     Transaction(
@@ -238,14 +291,12 @@ async def seed_mock_data(session: Session, email: str = "demo@example.com") -> S
                         transaction_date=provider_transaction.transaction_date,
                         posted_date=provider_transaction.posted_date,
                         description=provider_transaction.description,
-                        normalised_description=normalise_description(
-                            provider_transaction.description
-                        ).value,
-                        merchant_id=merchant.id if merchant else None,
+                        normalised_description=normalised_description,
+                        merchant_id=merchant.id,
                         amount=provider_transaction.amount,
                         currency=provider_transaction.currency,
                         transaction_type=provider_transaction.transaction_type,
-                        category_id=categories[category_name].id,
+                        category_id=saved_category_id or categories[category_name].id,
                         status=provider_transaction.status,
                         pending=provider_transaction.status.value == "pending",
                         provider_category=provider_transaction.provider_category,

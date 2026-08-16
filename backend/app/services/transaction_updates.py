@@ -41,7 +41,11 @@ def update_category(
     category = db.scalar(
         select(Category).where(
             Category.id == category_id,
-            (Category.user_id.is_(None)) | (Category.user_id == user_id),
+            (Category.is_system.is_(True))
+            | (
+                (Category.user_id == user_id)
+                & (Category.account_id == transaction.account_id)
+            ),
         )
     )
     if category is None:
@@ -82,6 +86,25 @@ def update_category(
         else:
             rule.category_id = category.id
             rule.enabled = True
+        similar_filters = [
+            Account.user_id == user_id,
+            Transaction.id != transaction.id,
+            (
+                Transaction.merchant_id == transaction.merchant_id
+                if transaction.merchant_id is not None
+                else Transaction.normalised_description
+                == transaction.normalised_description
+            ),
+        ]
+        if category.account_id is not None:
+            similar_filters.append(Account.id == transaction.account_id)
+        similar_transactions = db.scalars(
+            select(Transaction)
+            .join(Account)
+            .where(*similar_filters)
+        ).all()
+        for similar_transaction in similar_transactions:
+            similar_transaction.category_id = category.id
     db.commit()
 
 

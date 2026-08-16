@@ -4,6 +4,22 @@ from datetime import date
 from app.integrations.banking.mock_provider import MockBankProvider
 
 
+def test_mock_provider_exposes_fifteen_accounts_across_institutions() -> None:
+    provider = MockBankProvider()
+
+    async def collect_accounts() -> tuple[int, int]:
+        institutions = await provider.get_institutions()
+        connections = await provider.get_connections("demo-user")
+        accounts = [
+            account
+            for connection in connections
+            for account in await provider.get_accounts(connection)
+        ]
+        return len(institutions), len(accounts)
+
+    assert asyncio.run(collect_accounts()) == (14, 15)
+
+
 def test_mock_provider_has_rich_twelve_month_history() -> None:
     provider = MockBankProvider(anchor=date(2026, 8, 15))
 
@@ -46,4 +62,3 @@ def test_mock_credit_card_contains_recurring_and_irregular_expenses() -> None:
     assert sum("NETFLIX" in item for item in descriptions) == 12
     assert any("GOOD GUYS" in item for item in descriptions)
     assert any("ANIMAL HOSPITAL" in item for item in descriptions)
-
