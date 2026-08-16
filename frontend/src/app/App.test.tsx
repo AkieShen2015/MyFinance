@@ -57,7 +57,12 @@ describe('App', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn((input: RequestInfo | URL) => {
-        const url = new URL(String(input), 'http://localhost')
+        const url =
+          typeof input === 'string'
+            ? new URL(input, 'http://localhost')
+            : input instanceof URL
+              ? input
+              : new URL(input.url)
         const path = `${url.pathname}${url.search}`
         return Promise.resolve({
           ok: true,

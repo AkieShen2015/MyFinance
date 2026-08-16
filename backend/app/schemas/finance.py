@@ -33,6 +33,9 @@ class CategoryRead(BaseModel):
 
 class TransactionRead(BaseModel):
     id: UUID
+    account_id: UUID
+    category_id: UUID | None
+    merchant_id: UUID | None
     transaction_date: date
     institution_name: str
     account_name: str
@@ -60,3 +63,11 @@ class OverviewRead(BaseModel):
     total_balance: Decimal
     currency: str = "AUD"
 
+
+class TransactionCategoryUpdate(BaseModel):
+    category_id: UUID
+    apply_to_similar: bool = False
+
+
+class TransactionTagsUpdate(BaseModel):
+    tags: list[str] = Field(max_length=20)

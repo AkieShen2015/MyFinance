@@ -1,9 +1,11 @@
+from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.models.enums import TransactionType
 from app.models.finance import (
     Account,
     BankConnection,
@@ -66,11 +68,55 @@ def list_categories(db: Session, user_id: UUID) -> list[CategoryRead]:
 
 
 def list_transactions(
-    db: Session, user_id: UUID, *, limit: int, offset: int
+    db: Session,
+    user_id: UUID,
+    *,
+    limit: int,
+    offset: int,
+    account_id: UUID | None = None,
+    institution_id: UUID | None = None,
+    category_id: UUID | None = None,
+    merchant_id: UUID | None = None,
+    transaction_type: TransactionType | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    amount_min: Decimal | None = None,
+    amount_max: Decimal | None = None,
+    search: str | None = None,
 ) -> TransactionPage:
-    owner_filter = Account.user_id == user_id
+    filters = [Account.user_id == user_id]
+    if account_id:
+        filters.append(Account.id == account_id)
+    if institution_id:
+        filters.append(Account.institution_id == institution_id)
+    if category_id:
+        filters.append(Transaction.category_id == category_id)
+    if merchant_id:
+        filters.append(Transaction.merchant_id == merchant_id)
+    if transaction_type:
+        filters.append(Transaction.transaction_type == transaction_type)
+    if date_from:
+        filters.append(Transaction.transaction_date >= date_from)
+    if date_to:
+        filters.append(Transaction.transaction_date <= date_to)
+    if amount_min is not None:
+        filters.append(Transaction.amount >= amount_min)
+    if amount_max is not None:
+        filters.append(Transaction.amount <= amount_max)
+    if search:
+        pattern = f"%{search.strip()}%"
+        filters.append(
+            or_(
+                Transaction.description.ilike(pattern),
+                Transaction.normalised_description.ilike(pattern),
+                Merchant.display_name.ilike(pattern),
+            )
+        )
     total = db.scalar(
-        select(func.count(Transaction.id)).join(Account).where(owner_filter)
+        select(func.count(Transaction.id))
+        .join(Account)
+        .outerjoin(Merchant, Merchant.id == Transaction.merchant_id)
+        .where(*filters)
     ) or 0
     rows = db.execute(
         select(Transaction, Account, Institution, Merchant, Category)
@@ -79,7 +125,7 @@ def list_transactions(
         .outerjoin(Merchant, Merchant.id == Transaction.merchant_id)
         .outerjoin(Category, Category.id == Transaction.category_id)
         .options(selectinload(Transaction.tags))
-        .where(owner_filter)
+        .where(*filters)
         .order_by(Transaction.transaction_date.desc(), Transaction.id)
         .limit(limit)
         .offset(offset)
@@ -87,13 +133,16 @@ def list_transactions(
     items = [
         TransactionRead(
             id=transaction.id,
+            account_id=account.id,
+            category_id=transaction.category_id,
+            merchant_id=transaction.merchant_id,
             transaction_date=transaction.transaction_date,
             institution_name=institution.name,
             account_name=account.account_name,
             merchant_name=merchant.display_name if merchant else None,
             description=transaction.description,
             category_name=category.name if category else None,
-            tags=[tag.name for tag in transaction.tags],
+            tags=sorted((tag.name for tag in transaction.tags), key=str.casefold),
             transaction_type=transaction.transaction_type,
             amount=transaction.amount,
             currency=transaction.currency,
@@ -124,4 +173,3 @@ def get_overview(db: Session, user_id: UUID) -> OverviewRead:
         category_count=category_count,
         total_balance=Decimal(total_balance),
     )
-

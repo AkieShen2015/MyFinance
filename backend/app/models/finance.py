@@ -34,14 +34,23 @@ from app.models.enums import (
 )
 
 
-def enum_column(enum_type: type[Any], name: str) -> Enum[Any]:
-    return Enum(enum_type, name=name, native_enum=False, values_callable=lambda items: [x.value for x in items])
+def enum_column(enum_type: type[Any], name: str) -> Enum:
+    return Enum(
+        enum_type,
+        name=name,
+        native_enum=False,
+        values_callable=lambda items: [x.value for x in items],
+    )
 
 
 transaction_tag_links = Table(
     "transaction_tag_links",
     Base.metadata,
-    Column("transaction_id", ForeignKey("transactions.id", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "transaction_id",
+        ForeignKey("transactions.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
     Column("tag_id", ForeignKey("transaction_tags.id", ondelete="CASCADE"), primary_key=True),
 )
 
@@ -54,7 +63,11 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class Institution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "institutions"
-    __table_args__ = (UniqueConstraint("provider", "external_id", name="uq_institution_provider_external"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "provider", "external_id", name="uq_institution_provider_external"
+        ),
+    )
 
     provider: Mapped[str] = mapped_column(String(50))
     external_id: Mapped[str] = mapped_column(String(255))
@@ -66,7 +79,11 @@ class Institution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class BankConnection(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "bank_connections"
     __table_args__ = (
-        UniqueConstraint("provider", "provider_connection_id", name="uq_connection_provider_external"),
+        UniqueConstraint(
+            "provider",
+            "provider_connection_id",
+            name="uq_connection_provider_external",
+        ),
         Index("ix_bank_connections_user_status", "user_id", "status"),
     )
 
@@ -75,7 +92,8 @@ class BankConnection(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     provider: Mapped[str] = mapped_column(String(50))
     provider_connection_id: Mapped[str] = mapped_column(String(255))
     status: Mapped[ConnectionStatus] = mapped_column(
-        enum_column(ConnectionStatus, "connection_status"), default=ConnectionStatus.PENDING
+        enum_column(ConnectionStatus, "connection_status"),
+        default=ConnectionStatus.PENDING,
     )
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     consent_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -86,7 +104,11 @@ class BankConnection(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class Account(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "accounts"
     __table_args__ = (
-        UniqueConstraint("bank_connection_id", "external_account_id", name="uq_account_connection_external"),
+        UniqueConstraint(
+            "bank_connection_id",
+            "external_account_id",
+            name="uq_account_connection_external",
+        ),
         Index("ix_accounts_user_institution", "user_id", "institution_id"),
     )
 
@@ -94,7 +116,9 @@ class Account(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     bank_connection_id: Mapped[UUID] = mapped_column(
         ForeignKey("bank_connections.id", ondelete="CASCADE")
     )
-    institution_id: Mapped[UUID] = mapped_column(ForeignKey("institutions.id", ondelete="RESTRICT"))
+    institution_id: Mapped[UUID] = mapped_column(
+        ForeignKey("institutions.id", ondelete="RESTRICT")
+    )
     external_account_id: Mapped[str] = mapped_column(String(255))
     account_name: Mapped[str] = mapped_column(String(255))
     account_type: Mapped[AccountType] = mapped_column(enum_column(AccountType, "account_type"))
@@ -118,7 +142,9 @@ class Merchant(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class Category(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "categories"
     __table_args__ = (
-        UniqueConstraint("user_id", "parent_id", "name", name="uq_category_owner_parent_name"),
+        UniqueConstraint(
+            "user_id", "parent_id", "name", name="uq_category_owner_parent_name"
+        ),
         CheckConstraint(
             "(is_system = true AND user_id IS NULL) OR (is_system = false AND user_id IS NOT NULL)",
             name="ck_category_system_owner",
@@ -127,20 +153,28 @@ class Category(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
 
     name: Mapped[str] = mapped_column(String(100))
-    parent_id: Mapped[UUID | None] = mapped_column(ForeignKey("categories.id", ondelete="RESTRICT"))
+    parent_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("categories.id", ondelete="RESTRICT")
+    )
     type: Mapped[CategoryType] = mapped_column(enum_column(CategoryType, "category_type"))
     icon: Mapped[str | None] = mapped_column(String(100))
     is_system: Mapped[bool] = mapped_column(Boolean, default=False)
     user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
 
-    parent: Mapped["Category | None"] = relationship(remote_side="Category.id", back_populates="children")
+    parent: Mapped["Category | None"] = relationship(
+        remote_side="Category.id", back_populates="children"
+    )
     children: Mapped[list["Category"]] = relationship(back_populates="parent")
 
 
 class Transaction(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "transactions"
     __table_args__ = (
-        UniqueConstraint("account_id", "external_transaction_id", name="uq_transaction_account_external"),
+        UniqueConstraint(
+            "account_id",
+            "external_transaction_id",
+            name="uq_transaction_account_external",
+        ),
         Index("ix_transactions_account_date", "account_id", "transaction_date"),
         Index("ix_transactions_category_date", "category_id", "transaction_date"),
         Index("ix_transactions_merchant_date", "merchant_id", "transaction_date"),
@@ -153,15 +187,20 @@ class Transaction(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     posted_date: Mapped[date | None] = mapped_column(Date)
     description: Mapped[str] = mapped_column(Text)
     normalised_description: Mapped[str | None] = mapped_column(Text)
-    merchant_id: Mapped[UUID | None] = mapped_column(ForeignKey("merchants.id", ondelete="SET NULL"))
+    merchant_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("merchants.id", ondelete="SET NULL")
+    )
     amount: Mapped[Decimal] = mapped_column(Numeric(19, 4))
     currency: Mapped[str] = mapped_column(String(3), default="AUD")
     transaction_type: Mapped[TransactionType] = mapped_column(
         enum_column(TransactionType, "transaction_type")
     )
-    category_id: Mapped[UUID | None] = mapped_column(ForeignKey("categories.id", ondelete="SET NULL"))
+    category_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("categories.id", ondelete="SET NULL")
+    )
     status: Mapped[TransactionStatus] = mapped_column(
-        enum_column(TransactionStatus, "transaction_status"), default=TransactionStatus.POSTED
+        enum_column(TransactionStatus, "transaction_status"),
+        default=TransactionStatus.POSTED,
     )
     pending: Mapped[bool] = mapped_column(Boolean, default=False)
     provider_category: Mapped[str | None] = mapped_column(String(255))
@@ -177,7 +216,9 @@ class Transaction(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class TransactionTag(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "transaction_tags"
-    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_transaction_tag_user_name"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_transaction_tag_user_name"),
+    )
 
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     name: Mapped[str] = mapped_column(String(100))
@@ -190,12 +231,19 @@ class TransactionTag(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class CategorisationRule(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "categorisation_rules"
     __table_args__ = (
-        Index("ix_categorisation_rules_user_enabled_priority", "user_id", "enabled", "priority"),
+        Index(
+            "ix_categorisation_rules_user_enabled_priority",
+            "user_id",
+            "enabled",
+            "priority",
+        ),
         CheckConstraint("priority >= 0", name="ck_categorisation_rule_priority_nonnegative"),
     )
 
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    match_type: Mapped[RuleMatchType] = mapped_column(enum_column(RuleMatchType, "rule_match_type"))
+    match_type: Mapped[RuleMatchType] = mapped_column(
+        enum_column(RuleMatchType, "rule_match_type")
+    )
     match_value: Mapped[str] = mapped_column(String(500))
     merchant_id: Mapped[UUID | None] = mapped_column(ForeignKey("merchants.id", ondelete="CASCADE"))
     category_id: Mapped[UUID] = mapped_column(ForeignKey("categories.id", ondelete="CASCADE"))

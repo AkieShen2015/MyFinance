@@ -41,6 +41,15 @@ export interface TransactionPage {
   offset: number
 }
 
+export interface Category {
+  id: string
+  name: string
+  parent_id: string | null
+  type: string
+  icon: string | null
+  is_system: boolean
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
   const response = await fetch(`${apiBaseUrl}${path}`, { credentials: 'include' })
@@ -57,5 +66,7 @@ async function getJson<T>(path: string): Promise<T> {
 export const financeApi = {
   overview: () => getJson<Overview>('/api/overview'),
   accounts: () => getJson<Account[]>('/api/accounts'),
-  transactions: () => getJson<TransactionPage>('/api/transactions?limit=15'),
+  categories: () => getJson<Category[]>('/api/categories'),
+  transactions: (query = 'limit=15') =>
+    getJson<TransactionPage>(`/api/transactions?${query}`),
 }

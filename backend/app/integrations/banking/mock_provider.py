@@ -97,10 +97,26 @@ class MockBankProvider:
             month_key = month_date(self.anchor, month_offset, 1).strftime("%Y%m")
             salary = Decimal("8420.00") + Decimal(20 * (month_offset + 11))
             rows.append(
-                self._tx(month_key, "salary", "anz-everyday", 1, "ACME PTY LTD PAYROLL", salary, "Salary")
+                self._tx(
+                    month_key,
+                    "salary",
+                    "anz-everyday",
+                    1,
+                    "ACME PTY LTD PAYROLL",
+                    salary,
+                    "Salary",
+                )
             )
             rows.append(
-                self._tx(month_key, "rent", "anz-everyday", 2, "RENT PAYMENT", Decimal("-2100"), "Rent")
+                self._tx(
+                    month_key,
+                    "rent",
+                    "anz-everyday",
+                    2,
+                    "RENT PAYMENT",
+                    Decimal("-2100"),
+                    "Rent",
+                )
             )
             for week, amount in enumerate(("-138.42", "-151.08", "-129.65", "-164.22"), start=1):
                 rows.append(
@@ -116,30 +132,136 @@ class MockBankProvider:
                 )
             rows.extend(
                 (
-                    self._tx(month_key, "netflix", "cba-credit", 15, "NETFLIX.COM", Decimal("-25.99"), "Subscriptions"),
-                    self._tx(month_key, "spotify", "cba-credit", 17, "SPOTIFY AU", Decimal("-13.99"), "Subscriptions"),
-                    self._tx(month_key, "icloud", "cba-credit", 19, "APPLE.COM/BILL ICLOUD", Decimal("-4.49"), "Subscriptions"),
-                    self._tx(month_key, "gym", "anz-everyday", 8, "FITNESS FIRST", Decimal("-59.00"), "Fitness"),
-                    self._tx(month_key, "electricity", "anz-everyday", 12, "ENERGY AUSTRALIA", Decimal("-184.70"), "Utilities"),
-                    self._tx(month_key, "restaurant", "cba-credit", 21, "HARBOUR DINING", Decimal("-142.30") - Decimal(3 * (month_offset + 11)), "Restaurants"),
-                    self._tx(month_key, "opal", "anz-everyday", 23, "TRANSPORT NSW OPAL", Decimal("-82.40"), "Public Transport"),
-                    self._tx(month_key, "fuel", "cba-credit", 25, "SHELL COLES EXPRESS", Decimal("-76.20"), "Fuel"),
-                    self._tx(month_key, "interest", "anz-savings", 28, "INTEREST PAID", Decimal("42.15"), "Interest"),
+                    self._tx(
+                        month_key,
+                        "netflix",
+                        "cba-credit",
+                        15,
+                        "NETFLIX.COM",
+                        Decimal("-25.99"),
+                        "Subscriptions",
+                    ),
+                    self._tx(
+                        month_key,
+                        "spotify",
+                        "cba-credit",
+                        17,
+                        "SPOTIFY AU",
+                        Decimal("-13.99"),
+                        "Subscriptions",
+                    ),
+                    self._tx(
+                        month_key,
+                        "icloud",
+                        "cba-credit",
+                        19,
+                        "APPLE.COM/BILL ICLOUD",
+                        Decimal("-4.49"),
+                        "Subscriptions",
+                    ),
+                    self._tx(
+                        month_key,
+                        "gym",
+                        "anz-everyday",
+                        8,
+                        "FITNESS FIRST",
+                        Decimal("-59.00"),
+                        "Fitness",
+                    ),
+                    self._tx(
+                        month_key,
+                        "electricity",
+                        "anz-everyday",
+                        12,
+                        "ENERGY AUSTRALIA",
+                        Decimal("-184.70"),
+                        "Utilities",
+                    ),
+                    self._tx(
+                        month_key,
+                        "restaurant",
+                        "cba-credit",
+                        21,
+                        "HARBOUR DINING",
+                        Decimal("-142.30")
+                        - Decimal(3 * (month_offset + 11)),
+                        "Restaurants",
+                    ),
+                    self._tx(
+                        month_key,
+                        "opal",
+                        "anz-everyday",
+                        23,
+                        "TRANSPORT NSW OPAL",
+                        Decimal("-82.40"),
+                        "Public Transport",
+                    ),
+                    self._tx(
+                        month_key,
+                        "fuel",
+                        "cba-credit",
+                        25,
+                        "SHELL COLES EXPRESS",
+                        Decimal("-76.20"),
+                        "Fuel",
+                    ),
+                    self._tx(
+                        month_key,
+                        "interest",
+                        "anz-savings",
+                        28,
+                        "INTEREST PAID",
+                        Decimal("42.15"),
+                        "Interest",
+                    ),
                 )
             )
             if month_offset % 3 == 0:
                 rows.append(
-                    self._tx(month_key, "petbarn", "cba-credit", 10, "PETBARN ALEXANDRIA", Decimal("-186.40"), "Pet Supplies")
+                    self._tx(
+                        month_key,
+                        "petbarn",
+                        "cba-credit",
+                        10,
+                        "PETBARN ALEXANDRIA",
+                        Decimal("-186.40"),
+                        "Pet Supplies",
+                    )
                 )
             if month_offset in (-8, -3):
                 rows.append(
-                    self._tx(month_key, "vet", "cba-credit", 14, "SYDNEY ANIMAL HOSPITAL", Decimal("-685.00"), "Veterinary")
+                    self._tx(
+                        month_key,
+                        "vet",
+                        "cba-credit",
+                        14,
+                        "SYDNEY ANIMAL HOSPITAL",
+                        Decimal("-685.00"),
+                        "Veterinary",
+                    )
                 )
             if month_offset == -5:
                 rows.append(
-                    self._tx(month_key, "appliance", "cba-credit", 20, "THE GOOD GUYS", Decimal("-1649.00"), "Electronics")
+                    self._tx(
+                        month_key,
+                        "appliance",
+                        "cba-credit",
+                        20,
+                        "THE GOOD GUYS",
+                        Decimal("-1649.00"),
+                        "Electronics",
+                    )
                 )
-        return tuple(sorted(rows, key=lambda tx: (tx.account_external_id, tx.transaction_date, tx.external_id)))
+        return tuple(
+            sorted(
+                rows,
+                key=lambda tx: (
+                    tx.account_external_id,
+                    tx.transaction_date,
+                    tx.external_id,
+                ),
+            )
+        )
 
     def _tx(
         self,

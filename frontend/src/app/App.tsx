@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { useState } from 'react'
+import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router-dom'
 
 import { financeApi, type Account, type Transaction } from '../api/finance'
 
@@ -84,7 +85,7 @@ function OverviewPage() {
   const accounts = useQuery({ queryKey: ['accounts'], queryFn: financeApi.accounts })
   const transactions = useQuery({
     queryKey: ['transactions', 15],
-    queryFn: financeApi.transactions,
+    queryFn: () => financeApi.transactions(),
   })
 
   if (overview.isPending || accounts.isPending || transactions.isPending) {
@@ -127,6 +128,12 @@ function OverviewPage() {
             Mock data — no bank connected
           </span>
         </header>
+        <nav className="mt-5 flex gap-4 text-sm font-medium">
+          <span className="text-emerald-700">Overview</span>
+          <Link className="text-slate-600 hover:text-emerald-700" to="/transactions">
+            Transactions
+          </Link>
+        </nav>
 
         <section className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-label="Summary">
           <SummaryCard
@@ -200,12 +207,64 @@ function OverviewPage() {
   )
 }
 
+function TransactionsPage() {
+  const [draftSearch, setDraftSearch] = useState('')
+  const [search, setSearch] = useState('')
+  const query = new URLSearchParams({ limit: '50' })
+  if (search) query.set('search', search)
+  const transactions = useQuery({
+    queryKey: ['transactions-page', search],
+    queryFn: () => financeApi.transactions(query.toString()),
+  })
+
+  return (
+    <main className="min-h-screen bg-slate-50 px-5 py-8 sm:px-8">
+      <div className="mx-auto max-w-7xl">
+        <nav className="mb-8 flex gap-4 text-sm font-medium">
+          <Link className="text-slate-600 hover:text-emerald-700" to="/">Overview</Link>
+          <span className="text-emerald-700">Transactions</span>
+        </nav>
+        <h1 className="text-3xl font-semibold tracking-tight text-slate-950">Transactions</h1>
+        <p className="mt-2 text-slate-600">Search all accounts by merchant or description.</p>
+        <form
+          className="mt-6 flex max-w-xl gap-2"
+          onSubmit={(event) => { event.preventDefault(); setSearch(draftSearch.trim()) }}
+        >
+          <input
+            aria-label="Search transactions"
+            className="min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-4 py-2.5 outline-none focus:border-emerald-600"
+            onChange={(event) => {
+              setDraftSearch(event.target.value)
+            }}
+            placeholder="Search Woolworths, rent, Netflix…"
+            value={draftSearch}
+          />
+          <button className="rounded-xl bg-emerald-700 px-5 py-2.5 font-medium text-white hover:bg-emerald-800" type="submit">Search</button>
+        </form>
+        <section className="mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          {transactions.isPending ? <p className="p-8 text-slate-500">Loading transactions…</p> : null}
+          {transactions.isError ? <p className="p-8 text-rose-700">Unable to load transactions.</p> : null}
+          {transactions.data ? (
+            <>
+              <div className="border-b border-slate-100 px-5 py-4 text-sm text-slate-500">
+                Showing {transactions.data.items.length} of {transactions.data.total}
+              </div>
+              <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-5 py-3">Date</th><th className="px-5 py-3">Merchant</th><th className="px-5 py-3">Category</th><th className="px-5 py-3 text-right">Amount</th></tr></thead><tbody>{transactions.data.items.map((transaction) => <TransactionRow key={transaction.id} transaction={transaction} />)}</tbody></table></div>
+            </>
+          ) : null}
+        </section>
+      </div>
+    </main>
+  )
+}
+
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<OverviewPage />} />
+          <Route path="/transactions" element={<TransactionsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

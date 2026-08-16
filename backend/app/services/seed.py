@@ -15,7 +15,7 @@ from app.models.finance import (
     Transaction,
     User,
 )
-
+from app.services.transaction_processing import normalise_description
 
 SYSTEM_CATEGORIES: dict[str, tuple[CategoryType, tuple[str, ...]]] = {
     "Food": (CategoryType.EXPENSE, ("Groceries", "Restaurants", "Takeaway")),
@@ -77,7 +77,9 @@ def _get_or_create_category(
 ) -> Category:
     category = session.scalar(
         select(Category).where(
-            Category.user_id.is_(None), Category.parent_id == (parent.id if parent else None), Category.name == name
+            Category.user_id.is_(None),
+            Category.parent_id == (parent.id if parent else None),
+            Category.name == name,
         )
     )
     if category is None:
@@ -139,23 +141,24 @@ async def seed_mock_data(session: Session, email: str = "demo@example.com") -> S
 
     categories = seed_system_categories(session)
     institutions: dict[str, Institution] = {}
-    for item in await provider.get_institutions():
+    for provider_institution in await provider.get_institutions():
         institution = session.scalar(
             select(Institution).where(
-                Institution.provider == provider.name, Institution.external_id == item.external_id
+                Institution.provider == provider.name,
+                Institution.external_id == provider_institution.external_id,
             )
         )
         if institution is None:
             institution = Institution(
                 provider=provider.name,
-                external_id=item.external_id,
-                name=item.name,
-                logo_url=item.logo_url,
-                country=item.country,
+                external_id=provider_institution.external_id,
+                name=provider_institution.name,
+                logo_url=provider_institution.logo_url,
+                country=provider_institution.country,
             )
             session.add(institution)
             session.flush()
-        institutions[item.external_id] = institution
+        institutions[provider_institution.external_id] = institution
 
     accounts: dict[str, Account] = {}
     for connection_id in await provider.get_connections("demo-user"):
@@ -179,11 +182,11 @@ async def seed_mock_data(session: Session, email: str = "demo@example.com") -> S
             )
             session.add(connection)
             session.flush()
-        for item in await provider.get_accounts(connection_id):
+        for provider_account in await provider.get_accounts(connection_id):
             account = session.scalar(
                 select(Account).where(
                     Account.bank_connection_id == connection.id,
-                    Account.external_account_id == item.external_id,
+                    Account.external_account_id == provider_account.external_id,
                 )
             )
             if account is None:
@@ -191,17 +194,17 @@ async def seed_mock_data(session: Session, email: str = "demo@example.com") -> S
                     user_id=user.id,
                     bank_connection_id=connection.id,
                     institution_id=institution.id,
-                    external_account_id=item.external_id,
-                    account_name=item.name,
-                    account_type=item.account_type,
-                    masked_account_number=item.masked_account_number,
-                    currency=item.currency,
-                    current_balance=item.current_balance,
-                    available_balance=item.available_balance,
+                    external_account_id=provider_account.external_id,
+                    account_name=provider_account.name,
+                    account_type=provider_account.account_type,
+                    masked_account_number=provider_account.masked_account_number,
+                    currency=provider_account.currency,
+                    current_balance=provider_account.current_balance,
+                    available_balance=provider_account.available_balance,
                 )
                 session.add(account)
                 session.flush()
-            accounts[item.external_id] = account
+            accounts[provider_account.external_id] = account
 
     inserted = 0
     merchant_cache: dict[str, Merchant] = {}
@@ -209,34 +212,47 @@ async def seed_mock_data(session: Session, email: str = "demo@example.com") -> S
         cursor: str | None = None
         while True:
             page = await provider.get_transactions(external_account_id, cursor)
-            for item in page.transactions:
-                exists = session.scalar(
-                    select(Transaction.id).where(
+            for provider_transaction in page.transactions:
+                existing = session.scalar(
+                    select(Transaction).where(
                         Transaction.account_id == account.id,
-                        Transaction.external_transaction_id == item.external_id,
+                        Transaction.external_transaction_id
+                        == provider_transaction.external_id,
                     )
                 )
-                if exists is not None:
+                if existing is not None:
+                    existing.normalised_description = normalise_description(
+                        existing.description
+                    ).value
                     continue
-                merchant = _merchant_for_description(session, item.description, merchant_cache)
-                category_name = PROVIDER_CATEGORY_MAP.get(item.provider_category or "", "Other")
+                merchant = _merchant_for_description(
+                    session, provider_transaction.description, merchant_cache
+                )
+                category_name = PROVIDER_CATEGORY_MAP.get(
+                    provider_transaction.provider_category or "", "Other"
+                )
                 session.add(
                     Transaction(
                         account_id=account.id,
-                        external_transaction_id=item.external_id,
-                        transaction_date=item.transaction_date,
-                        posted_date=item.posted_date,
-                        description=item.description,
-                        normalised_description=item.description.upper(),
+                        external_transaction_id=provider_transaction.external_id,
+                        transaction_date=provider_transaction.transaction_date,
+                        posted_date=provider_transaction.posted_date,
+                        description=provider_transaction.description,
+                        normalised_description=normalise_description(
+                            provider_transaction.description
+                        ).value,
                         merchant_id=merchant.id if merchant else None,
-                        amount=item.amount,
-                        currency=item.currency,
-                        transaction_type=item.transaction_type,
+                        amount=provider_transaction.amount,
+                        currency=provider_transaction.currency,
+                        transaction_type=provider_transaction.transaction_type,
                         category_id=categories[category_name].id,
-                        status=item.status,
-                        pending=item.status.value == "pending",
-                        provider_category=item.provider_category,
-                        raw_data={"source": "mock", "fixture_id": item.external_id},
+                        status=provider_transaction.status,
+                        pending=provider_transaction.status.value == "pending",
+                        provider_category=provider_transaction.provider_category,
+                        raw_data={
+                            "source": "mock",
+                            "fixture_id": provider_transaction.external_id,
+                        },
                     )
                 )
                 inserted += 1
@@ -246,4 +262,3 @@ async def seed_mock_data(session: Session, email: str = "demo@example.com") -> S
 
     session.commit()
     return SeedResult(len(institutions), len(accounts), inserted)
-

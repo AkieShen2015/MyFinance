@@ -40,3 +40,37 @@ def test_seeded_finance_data_is_available_without_sensitive_raw_data(session: Se
     assert categories.status_code == 200
     assert len(categories.json()) > 10
 
+
+def test_transaction_search_category_update_and_tags(session: Session) -> None:
+    asyncio.run(seed_mock_data(session))
+
+    def override_database() -> Generator[Session, None, None]:
+        yield session
+
+    app.dependency_overrides[get_db] = override_database
+    try:
+        client = TestClient(app)
+        search = client.get("/api/transactions?search=woolworths&limit=5")
+        transaction = search.json()["items"][0]
+        categories = client.get("/api/categories").json()
+        other = next(item for item in categories if item["name"] == "Other")
+
+        category_update = client.patch(
+            f"/api/transactions/{transaction['id']}/category",
+            json={"category_id": other["id"], "apply_to_similar": True},
+        )
+        tag_update = client.patch(
+            f"/api/transactions/{transaction['id']}/tags",
+            json={"tags": ["reviewed", "household", "reviewed"]},
+        )
+        refreshed = client.get("/api/transactions?search=woolworths&limit=5")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert search.status_code == 200
+    assert search.json()["total"] == 48
+    assert category_update.status_code == 204
+    assert tag_update.status_code == 204
+    changed = next(item for item in refreshed.json()["items"] if item["id"] == transaction["id"])
+    assert changed["category_id"] == other["id"]
+    assert changed["tags"] == ["household", "reviewed"]
