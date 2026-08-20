@@ -76,7 +76,7 @@ def list_transactions(
     *,
     limit: int,
     offset: int,
-    account_id: UUID | None = None,
+    account_ids: list[UUID] | None = None,
     institution_id: UUID | None = None,
     category_id: UUID | None = None,
     merchant_id: UUID | None = None,
@@ -90,8 +90,8 @@ def list_transactions(
     sort_order: Literal["asc", "desc"] = "desc",
 ) -> TransactionPage:
     filters = [Account.user_id == user_id]
-    if account_id:
-        filters.append(Account.id == account_id)
+    if account_ids:
+        filters.append(Account.id.in_(account_ids))
     if institution_id:
         filters.append(Account.institution_id == institution_id)
     if category_id:

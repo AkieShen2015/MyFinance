@@ -16,13 +16,25 @@ from app.repositories.finance_read import (
 )
 from app.schemas.finance import (
     AccountRead,
+    AnalyticsReportRead,
     CategoryCreate,
     CategoryRead,
+    DashboardSummaryRead,
+    ExpenseCategoryRead,
+    IncomeExpenseMonthRead,
     OverviewRead,
     TransactionCategoryUpdate,
     TransactionPage,
     TransactionRead,
     TransactionTagsUpdate,
+)
+from app.services.analytics import (
+    InvalidAccountScopeError,
+    analytics_report,
+    dashboard_summary,
+    expenses_by_category,
+    income_vs_expenses,
+    validate_account_scope,
 )
 from app.services.categories import create_or_match_category
 from app.services.transaction_updates import replace_tags, update_category
@@ -33,6 +45,102 @@ router = APIRouter(tags=["finance"])
 @router.get("/overview", response_model=OverviewRead)
 def overview(db: DatabaseSession, user: CurrentUser) -> OverviewRead:
     return get_overview(db, user.id)
+
+
+def _validate_period(date_from: date, date_to: date) -> None:
+    if date_from > date_to:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="date_from must not be after date_to",
+        )
+
+
+def _account_scope(
+    db: DatabaseSession,
+    user: CurrentUser,
+    account_ids: list[UUID] | None,
+) -> tuple[UUID, ...]:
+    try:
+        return validate_account_scope(db, user.id, account_ids)
+    except InvalidAccountScopeError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Account not found",
+        ) from error
+
+
+@router.get("/dashboard/summary", response_model=DashboardSummaryRead)
+def dashboard_summary_endpoint(
+    db: DatabaseSession,
+    user: CurrentUser,
+    date_from: date,
+    date_to: date,
+    account_id: Annotated[list[UUID] | None, Query()] = None,
+) -> DashboardSummaryRead:
+    _validate_period(date_from, date_to)
+    return dashboard_summary(
+        db,
+        user.id,
+        date_from,
+        date_to,
+        _account_scope(db, user, account_id),
+    )
+
+
+@router.get("/dashboard/expenses-by-category", response_model=list[ExpenseCategoryRead])
+def dashboard_expenses_by_category(
+    db: DatabaseSession,
+    user: CurrentUser,
+    date_from: date,
+    date_to: date,
+    account_id: Annotated[list[UUID] | None, Query()] = None,
+) -> list[ExpenseCategoryRead]:
+    _validate_period(date_from, date_to)
+    return expenses_by_category(
+        db,
+        user.id,
+        date_from,
+        date_to,
+        _account_scope(db, user, account_id),
+    )
+
+
+@router.get("/dashboard/income-vs-expenses", response_model=list[IncomeExpenseMonthRead])
+def dashboard_income_vs_expenses(
+    db: DatabaseSession,
+    user: CurrentUser,
+    date_from: date,
+    date_to: date,
+    account_id: Annotated[list[UUID] | None, Query()] = None,
+) -> list[IncomeExpenseMonthRead]:
+    _validate_period(date_from, date_to)
+    return income_vs_expenses(
+        db,
+        user.id,
+        date_from,
+        date_to,
+        _account_scope(db, user, account_id),
+    )
+
+
+@router.get("/analytics/report", response_model=AnalyticsReportRead)
+def advanced_analytics_report(
+    db: DatabaseSession,
+    user: CurrentUser,
+    date_from: date,
+    date_to: date,
+    account_id: Annotated[list[UUID] | None, Query()] = None,
+    comparison: Literal["previous_period", "previous_year"] = "previous_period",
+) -> AnalyticsReportRead:
+    _validate_period(date_from, date_to)
+    return analytics_report(
+        db,
+        user.id,
+        date_from,
+        date_to,
+        _account_scope(db, user, account_id),
+        comparison,
+    )
 
 
 @router.get("/accounts", response_model=list[AccountRead])
@@ -67,7 +175,7 @@ def transactions(
     user: CurrentUser,
     limit: Annotated[int, Query(ge=1, le=100)] = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
-    account_id: UUID | None = None,
+    account_id: Annotated[list[UUID] | None, Query()] = None,
     institution_id: UUID | None = None,
     category_id: UUID | None = None,
     merchant_id: UUID | None = None,
@@ -85,7 +193,7 @@ def transactions(
         user.id,
         limit=limit,
         offset=offset,
-        account_id=account_id,
+        account_ids=account_id,
         institution_id=institution_id,
         category_id=category_id,
         merchant_id=merchant_id,

@@ -6,6 +6,9 @@ export default defineConfig({
   cacheDir: process.env.VITE_CACHE_DIR ?? 'node_modules/.vite',
   plugins: [react(), tailwindcss()],
   server: {
+    hmr: {
+      clientPort: Number(process.env.VITE_HMR_CLIENT_PORT ?? 5173),
+    },
     watch: {
       usePolling: true,
       interval: 300,

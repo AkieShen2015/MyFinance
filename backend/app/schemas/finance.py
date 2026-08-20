@@ -68,6 +68,110 @@ class OverviewRead(BaseModel):
     currency: str = "AUD"
 
 
+class DashboardSummaryRead(BaseModel):
+    date_from: date
+    date_to: date
+    total_income: Decimal
+    total_expenses: Decimal
+    net_cash_flow: Decimal
+    total_account_balance: Decimal
+    currency: str = "AUD"
+
+
+class ExpenseCategoryRead(BaseModel):
+    category: str
+    amount: Decimal = Field(ge=0)
+    percentage: Decimal = Field(ge=0, le=100)
+
+
+class IncomeExpenseMonthRead(BaseModel):
+    month: date
+    income: Decimal = Field(ge=0)
+    expenses: Decimal = Field(ge=0)
+
+
+class AnalyticsComparisonRead(BaseModel):
+    current: Decimal
+    previous: Decimal
+    change_amount: Decimal
+    change_percentage: Decimal | None
+
+
+class MerchantSpendRead(BaseModel):
+    merchant: str
+    amount: Decimal = Field(ge=0)
+    percentage: Decimal = Field(ge=0, le=100)
+    transaction_count: int = Field(ge=1)
+
+
+class RecurringPaymentRead(BaseModel):
+    merchant: str
+    average_amount: Decimal = Field(ge=0)
+    occurrences: int = Field(ge=2)
+    cadence_days: int = Field(ge=1)
+    next_expected_date: date
+    confidence: Decimal = Field(ge=0, le=1)
+
+
+class SpendingAnomalyRead(BaseModel):
+    transaction_id: UUID
+    date: date
+    merchant: str
+    category: str
+    amount: Decimal = Field(ge=0)
+    baseline_amount: Decimal = Field(ge=0)
+    multiple: Decimal = Field(ge=1)
+
+
+class CategoryTrendPointRead(BaseModel):
+    month: date
+    amount: Decimal = Field(ge=0)
+
+
+class CategoryTrendRead(BaseModel):
+    category: str
+    current_amount: Decimal = Field(ge=0)
+    previous_amount: Decimal = Field(ge=0)
+    change_amount: Decimal
+    change_percentage: Decimal | None
+    monthly: list[CategoryTrendPointRead]
+
+
+class FinancialInsightRead(BaseModel):
+    kind: str
+    title: str
+    message: str
+    impact_amount: Decimal = Field(ge=0)
+    confidence: Decimal = Field(ge=0, le=1)
+
+
+class AiInsightPayloadRead(BaseModel):
+    period_start: date
+    period_end: date
+    expense_change_amount: Decimal
+    expense_change_percentage: Decimal | None
+    top_category_changes: list[dict[str, str]]
+    recurring_total: Decimal = Field(ge=0)
+    anomaly_count: int = Field(ge=0)
+
+
+class AnalyticsReportRead(BaseModel):
+    date_from: date
+    date_to: date
+    previous_date_from: date
+    previous_date_to: date
+    income: AnalyticsComparisonRead
+    expenses: AnalyticsComparisonRead
+    net_cash_flow: AnalyticsComparisonRead
+    savings_rate: Decimal | None
+    category_trends: list[CategoryTrendRead]
+    top_merchants: list[MerchantSpendRead]
+    recurring_payments: list[RecurringPaymentRead]
+    anomalies: list[SpendingAnomalyRead]
+    insights: list[FinancialInsightRead]
+    ai_payload: AiInsightPayloadRead
+
+
 class TransactionCategoryUpdate(BaseModel):
     category_id: UUID
     apply_to_similar: bool = False

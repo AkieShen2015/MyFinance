@@ -1,13 +1,15 @@
-FROM node:24-alpine AS development
+FROM node:24-bookworm-slim AS development
 
 WORKDIR /app
 
-RUN chown node:node /app
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund \
+    && npx playwright install --with-deps chromium \
+    && chown -R node:node /app /ms-playwright
 
 USER node
-
-COPY --chown=node:node package.json ./
-RUN npm install --no-audit --no-fund
 
 COPY --chown=node:node . .
 

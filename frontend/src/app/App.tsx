@@ -7,6 +7,19 @@ import {
 } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router-dom'
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 
 import {
   financeApi,
@@ -15,10 +28,14 @@ import {
   type Transaction,
   type TransactionPage,
 } from '../api/finance'
+import { AnalyticsPage } from './AnalyticsPage'
+import { presetPeriod, type PeriodPreset } from './datePeriods'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
 })
+
+const chartColours = ['#047857', '#0f766e', '#0891b2', '#2563eb', '#7c3aed', '#c2410c']
 
 function money(value: string, currency = 'AUD') {
   return new Intl.NumberFormat('en-AU', {
@@ -116,7 +133,7 @@ function AccountCard({
 
   return (
     <button
-      aria-label={`Filter recent transactions by ${account.account_name}`}
+      aria-label={`Toggle ${account.account_name} in dashboard filters`}
       aria-pressed={selected}
       className={`relative min-h-56 w-full cursor-pointer overflow-hidden rounded-3xl bg-gradient-to-br ${theme.background} ${theme.text} p-6 text-left shadow-lg outline-none transition hover:-translate-y-1 hover:shadow-xl focus-visible:ring-4 focus-visible:ring-emerald-300 ${selected ? 'ring-4 ring-emerald-400 ring-offset-2' : ''}`}
       onClick={onSelect}
@@ -275,18 +292,49 @@ function TransactionRow({
 function OverviewPage() {
   const accountScroller = useRef<HTMLDivElement>(null)
   const [accountsExpanded, setAccountsExpanded] = useState(false)
-  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
-  const overview = useQuery({ queryKey: ['overview'], queryFn: financeApi.overview })
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([])
+  const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('this_month')
+  const [dateFrom, setDateFrom] = useState(() => presetPeriod('this_month').dateFrom)
+  const [dateTo, setDateTo] = useState(() => presetPeriod('this_month').dateTo)
   const accounts = useQuery({ queryKey: ['accounts'], queryFn: financeApi.accounts })
+  const analyticsParams = new URLSearchParams({ date_from: dateFrom, date_to: dateTo })
+  selectedAccountIds.forEach((accountId) => {
+    analyticsParams.append('account_id', accountId)
+  })
+  const analyticsQuery = analyticsParams.toString()
+  const accountScopeKey = selectedAccountIds.join(',')
+  const summary = useQuery({
+    queryKey: ['dashboard-summary', dateFrom, dateTo, accountScopeKey],
+    queryFn: () => financeApi.dashboardSummary(analyticsQuery),
+    placeholderData: (previousData) => previousData,
+  })
+  const expenses = useQuery({
+    queryKey: ['dashboard-expenses', dateFrom, dateTo, accountScopeKey],
+    queryFn: () => financeApi.expensesByCategory(analyticsQuery),
+    placeholderData: (previousData) => previousData,
+  })
+  const trend = useQuery({
+    queryKey: ['dashboard-trend', dateFrom, dateTo, accountScopeKey],
+    queryFn: () => financeApi.incomeVsExpenses(analyticsQuery),
+    placeholderData: (previousData) => previousData,
+  })
   const recentTransactionsQuery = new URLSearchParams({ limit: '15' })
-  if (selectedAccountId) recentTransactionsQuery.set('account_id', selectedAccountId)
+  selectedAccountIds.forEach((accountId) => {
+    recentTransactionsQuery.append('account_id', accountId)
+  })
   const transactions = useQuery({
-    queryKey: ['transactions', 15, selectedAccountId],
+    queryKey: ['transactions', 15, accountScopeKey],
     queryFn: () => financeApi.transactions(recentTransactionsQuery.toString()),
     placeholderData: (previousData) => previousData,
   })
 
-  if (overview.isPending || accounts.isPending || transactions.isPending) {
+  if (
+    accounts.isPending ||
+    transactions.isPending ||
+    summary.isPending ||
+    expenses.isPending ||
+    trend.isPending
+  ) {
     return (
       <main className="grid min-h-screen place-items-center text-slate-600">
         Loading mock finance data…
@@ -294,8 +342,15 @@ function OverviewPage() {
     )
   }
 
-  if (overview.isError || accounts.isError || transactions.isError) {
-    const error = overview.error ?? accounts.error ?? transactions.error
+  if (
+    accounts.isError ||
+    transactions.isError ||
+    summary.isError ||
+    expenses.isError ||
+    trend.isError
+  ) {
+    const error =
+      accounts.error ?? transactions.error ?? summary.error ?? expenses.error ?? trend.error
     return (
       <main className="grid min-h-screen place-items-center px-6">
         <section className="max-w-lg rounded-2xl border border-rose-200 bg-white p-8 text-center shadow-sm">
@@ -309,7 +364,39 @@ function OverviewPage() {
     )
   }
 
-  const selectedAccount = accounts.data.find((account) => account.id === selectedAccountId)
+  const selectedAccounts = accounts.data.filter((account) =>
+    selectedAccountIds.includes(account.id),
+  )
+  const institutions = Array.from(
+    new Map(
+      accounts.data.map((account) => [
+        account.institution_id,
+        { id: account.institution_id, name: account.institution_name },
+      ]),
+    ).values(),
+  ).sort((first, second) => first.name.localeCompare(second.name, 'en-AU'))
+  const toggleAccount = (accountId: string) => {
+    setSelectedAccountIds((currentIds) => {
+      const nextIds = new Set(currentIds)
+      if (nextIds.has(accountId)) nextIds.delete(accountId)
+      else nextIds.add(accountId)
+      return accounts.data
+        .filter((account) => nextIds.has(account.id))
+        .map((account) => account.id)
+    })
+  }
+  const categoryChartData = expenses.data.map((item) => ({
+    amount: Number(item.amount),
+    category: item.category,
+    percentage: Number(item.percentage),
+  }))
+  const trendChartData = trend.data.map((item) => ({
+    expenses: Number(item.expenses),
+    income: Number(item.income),
+    month: new Intl.DateTimeFormat('en-AU', { month: 'short', year: '2-digit' }).format(
+      new Date(`${item.month}T00:00:00`),
+    ),
+  }))
   const scrollAccounts = (direction: -1 | 1) => {
     accountScroller.current?.scrollBy({
       behavior: 'smooth',
@@ -328,7 +415,7 @@ function OverviewPage() {
             <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
               Your financial overview
             </h1>
-            <p className="mt-2 text-slate-600">Phase 3 · transaction review and filtering</p>
+            <p className="mt-2 text-slate-600">Phase 4 · cash-flow analytics and trends</p>
           </div>
           <span className="w-fit rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800">
             Mock data — no bank connected
@@ -339,29 +426,283 @@ function OverviewPage() {
           <Link className="text-slate-600 hover:text-emerald-700" to="/transactions">
             Transactions
           </Link>
+          <Link className="text-slate-600 hover:text-emerald-700" to="/analytics">
+            Analytics
+          </Link>
         </nav>
+
+        <section
+          aria-label="Dashboard period"
+          className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+        >
+          <div className="grid gap-4 md:grid-cols-[minmax(180px,1fr)_minmax(160px,1fr)_minmax(160px,1fr)]">
+            <label className="text-sm font-medium text-slate-700">
+              Period
+              <select
+                className="mt-1 block w-full cursor-pointer rounded-xl border border-slate-300 bg-white px-3 py-2.5 outline-none focus:border-emerald-600"
+                onChange={(event) => {
+                  const nextPreset = event.target.value as PeriodPreset
+                  setPeriodPreset(nextPreset)
+                  if (nextPreset !== 'custom') {
+                    const nextPeriod = presetPeriod(nextPreset)
+                    setDateFrom(nextPeriod.dateFrom)
+                    setDateTo(nextPeriod.dateTo)
+                  }
+                }}
+                value={periodPreset}
+              >
+                <option value="this_month">This month</option>
+                <option value="last_month">Last month</option>
+                <option value="last_3_months">Last 3 months</option>
+                <option value="last_6_months">Last 6 months</option>
+                <option value="last_1_year">Last 1 year</option>
+                <option value="this_year">This year</option>
+                <option value="custom">Custom date range</option>
+              </select>
+            </label>
+            <label className="text-sm font-medium text-slate-700">
+              From
+              <input
+                className="mt-1 block w-full rounded-xl border border-slate-300 bg-white px-3 py-2 outline-none focus:border-emerald-600 disabled:bg-slate-100"
+                disabled={periodPreset !== 'custom'}
+                max={dateTo}
+                onChange={(event) => {
+                  if (event.target.value) setDateFrom(event.target.value)
+                }}
+                type="date"
+                value={dateFrom}
+              />
+            </label>
+            <label className="text-sm font-medium text-slate-700">
+              To
+              <input
+                className="mt-1 block w-full rounded-xl border border-slate-300 bg-white px-3 py-2 outline-none focus:border-emerald-600 disabled:bg-slate-100"
+                disabled={periodPreset !== 'custom'}
+                min={dateFrom}
+                onChange={(event) => {
+                  if (event.target.value) setDateTo(event.target.value)
+                }}
+                type="date"
+                value={dateTo}
+              />
+            </label>
+          </div>
+          <div className="mt-4 border-t border-slate-100 pt-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+              <label className="min-w-56 text-sm font-medium text-slate-700">
+                Add an institution
+                <select
+                  aria-label="Add institution accounts"
+                  className="mt-1 block w-full cursor-pointer rounded-xl border border-slate-300 bg-white px-3 py-2.5 outline-none focus:border-emerald-600"
+                  onChange={(event) => {
+                    const institutionId = event.target.value
+                    if (!institutionId) return
+                    const institutionAccountIds = accounts.data
+                      .filter((account) => account.institution_id === institutionId)
+                      .map((account) => account.id)
+                    setSelectedAccountIds((currentIds) => {
+                      const nextIds = new Set([...currentIds, ...institutionAccountIds])
+                      return accounts.data
+                        .filter((account) => nextIds.has(account.id))
+                        .map((account) => account.id)
+                    })
+                  }}
+                  value=""
+                >
+                  <option value="">Choose institution…</option>
+                  {institutions.map((institution) => (
+                    <option key={institution.id} value={institution.id}>
+                      {institution.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <details className="relative min-w-64">
+                <summary className="cursor-pointer list-none rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                  {selectedAccountIds.length === 0
+                    ? `All ${String(accounts.data.length)} accounts`
+                    : `${String(selectedAccountIds.length)} of ${String(accounts.data.length)} accounts selected`}
+                </summary>
+                <div className="absolute left-0 z-30 mt-2 w-full min-w-80 rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
+                  <div className="mb-2 flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
+                    <button
+                      className="cursor-pointer text-xs font-semibold text-emerald-700 hover:text-emerald-900"
+                      onClick={() => {
+                        setSelectedAccountIds(accounts.data.map((account) => account.id))
+                      }}
+                      type="button"
+                    >
+                      Select all
+                    </button>
+                    <button
+                      className="cursor-pointer text-xs font-semibold text-slate-600 hover:text-slate-900"
+                      onClick={() => {
+                        setSelectedAccountIds([])
+                      }}
+                      type="button"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <div className="max-h-72 space-y-1 overflow-y-auto">
+                    {accounts.data.map((account) => (
+                      <label
+                        className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 text-sm hover:bg-slate-50"
+                        key={account.id}
+                      >
+                        <input
+                          checked={selectedAccountIds.includes(account.id)}
+                          className="mt-0.5 h-4 w-4 accent-emerald-700"
+                          onChange={() => {
+                            toggleAccount(account.id)
+                          }}
+                          type="checkbox"
+                        />
+                        <span>
+                          <span className="block font-medium text-slate-800">
+                            {account.account_name}
+                          </span>
+                          <span className="block text-xs text-slate-500">
+                            {account.institution_name} · {account.masked_account_number}
+                          </span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </details>
+              <button
+                className={`w-fit rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 ${selectedAccountIds.length === 0 ? 'invisible' : 'cursor-pointer'}`}
+                disabled={selectedAccountIds.length === 0}
+                onClick={() => {
+                  setSelectedAccountIds([])
+                }}
+                type="button"
+              >
+                Clear selection
+              </button>
+            </div>
+            <div
+              className="mt-3 flex min-h-8 flex-wrap items-center gap-2"
+              aria-label="Selected accounts"
+            >
+              {selectedAccounts.length > 0 ? (
+                selectedAccounts.map((account) => (
+                  <button
+                    aria-label={`Remove ${account.account_name} from dashboard filter`}
+                    className="cursor-pointer rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100"
+                    key={account.id}
+                    onClick={() => {
+                      toggleAccount(account.id)
+                    }}
+                    type="button"
+                  >
+                    {account.institution_name} · {account.account_name} ×
+                  </button>
+                ))
+              ) : (
+                <p className="text-xs text-slate-500">
+                  Analytics and recent activity currently include every account.
+                </p>
+              )}
+            </div>
+          </div>
+        </section>
 
         <section className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-label="Summary">
           <SummaryCard
-            label="Total balance"
-            value={money(overview.data.total_balance)}
-            detail="Across all mock accounts"
+            label="Total income"
+            value={money(summary.data.total_income, summary.data.currency)}
+            detail={`${dateFrom} to ${dateTo}`}
           />
           <SummaryCard
-            label="Accounts"
-            value={String(overview.data.account_count)}
-            detail={`Across ${String(new Set(accounts.data.map((account) => account.institution_id)).size)} institutions`}
+            label="Total expenses"
+            value={money(summary.data.total_expenses, summary.data.currency)}
+            detail="Posted expenses less refunds"
           />
           <SummaryCard
-            label="Transactions"
-            value={String(overview.data.transaction_count)}
-            detail="Twelve months of history"
+            label="Net cash flow"
+            value={money(summary.data.net_cash_flow, summary.data.currency)}
+            detail="Income minus expenses"
           />
           <SummaryCard
-            label="Categories"
-            value={String(overview.data.category_count)}
-            detail="Hierarchical system categories"
+            label="Total account balance"
+            value={money(summary.data.total_account_balance, summary.data.currency)}
+            detail={
+              selectedAccountIds.length === 0
+                ? `Across all ${String(accounts.data.length)} mock accounts`
+                : `Across ${String(selectedAccountIds.length)} selected ${selectedAccountIds.length === 1 ? 'account' : 'accounts'}`
+            }
           />
+        </section>
+
+        <section className="mt-8 grid gap-6 xl:grid-cols-2">
+          <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-sm font-medium text-slate-500">Spending composition</p>
+            <h2 className="mt-1 text-2xl font-semibold text-slate-950">Expenses by category</h2>
+            {categoryChartData.length === 0 ? (
+              <p className="py-16 text-center text-slate-500">No expenses in this period.</p>
+            ) : (
+              <div className="mt-5 grid items-center gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(180px,0.8fr)]">
+                <div className="h-72" aria-label="Expense category chart">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={categoryChartData}
+                        dataKey="amount"
+                        innerRadius={62}
+                        nameKey="category"
+                        outerRadius={100}
+                        paddingAngle={2}
+                      >
+                        {categoryChartData.map((item, index) => (
+                          <Cell
+                            fill={chartColours[index % chartColours.length]}
+                            key={item.category}
+                          />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <ul className="max-h-72 space-y-3 overflow-y-auto pr-2">
+                  {categoryChartData.map((item, index) => (
+                    <li className="flex items-center justify-between gap-3 text-sm" key={item.category}>
+                      <span className="flex min-w-0 items-center gap-2 text-slate-700">
+                        <span
+                          className="h-3 w-3 shrink-0 rounded-full"
+                          style={{ backgroundColor: chartColours[index % chartColours.length] }}
+                        />
+                        <span className="truncate">{item.category}</span>
+                      </span>
+                      <span className="whitespace-nowrap font-medium text-slate-900">
+                        {money(String(item.amount))} · {item.percentage.toFixed(1)}%
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </article>
+
+          <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-sm font-medium text-slate-500">Monthly movement</p>
+            <h2 className="mt-1 text-2xl font-semibold text-slate-950">Income vs expenses</h2>
+            <div className="mt-5 h-72" aria-label="Income versus expenses chart">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={trendChartData} margin={{ left: 4, right: 4, top: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="month" />
+                  <YAxis width={70} />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="income" fill="#047857" name="Income" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="expenses" fill="#c2410c" name="Expenses" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </article>
         </section>
 
         <section className="mt-10">
@@ -370,7 +711,7 @@ function OverviewPage() {
               <p className="text-sm font-medium text-slate-500">Connected institutions</p>
               <h2 className="text-2xl font-semibold text-slate-950">Accounts</h2>
               <p className="mt-1 text-sm text-slate-500">
-                Select an account to filter recent activity.
+                Select one or more accounts to filter analytics and recent activity.
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -420,11 +761,9 @@ function OverviewPage() {
                   <AccountCard
                     account={account}
                     onSelect={() => {
-                      setSelectedAccountId((currentId) =>
-                        currentId === account.id ? null : account.id,
-                      )
+                      toggleAccount(account.id)
                     }}
-                    selected={selectedAccountId === account.id}
+                    selected={selectedAccountIds.includes(account.id)}
                   />
                 </div>
               ))}
@@ -452,17 +791,19 @@ function OverviewPage() {
                 Recent {transactions.data.items.length} transactions
               </h2>
               <p className="mt-1 text-sm text-slate-500">
-                {selectedAccount
-                  ? `${selectedAccount.institution_name} · ${selectedAccount.account_name}`
-                  : 'Across all accounts'}
+                {selectedAccounts.length === 0
+                  ? 'Across all accounts'
+                  : selectedAccounts.length === 1 && selectedAccounts[0]
+                    ? `${selectedAccounts[0].institution_name} · ${selectedAccounts[0].account_name}`
+                    : `Across ${String(selectedAccounts.length)} selected accounts`}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              {selectedAccount ? (
+              {selectedAccountIds.length > 0 ? (
                 <button
                   className="cursor-pointer rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                   onClick={() => {
-                    setSelectedAccountId(null)
+                    setSelectedAccountIds([])
                   }}
                   type="button"
                 >
@@ -666,6 +1007,7 @@ function TransactionsPage() {
         <nav className="mb-8 flex gap-4 text-sm font-medium">
           <Link className="text-slate-600 hover:text-emerald-700" to="/">Overview</Link>
           <span className="text-emerald-700">Transactions</span>
+          <Link className="text-slate-600 hover:text-emerald-700" to="/analytics">Analytics</Link>
         </nav>
         <h1 className="text-3xl font-semibold tracking-tight text-slate-950">Transactions</h1>
         <p className="mt-2 text-slate-600">Search all accounts by merchant or description.</p>
@@ -980,6 +1322,7 @@ export function App() {
         <Routes>
           <Route path="/" element={<OverviewPage />} />
           <Route path="/transactions" element={<TransactionsPage />} />
+          <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
