@@ -311,8 +311,8 @@ def analytics_report(
     ]
 
     recurring: list[RecurringPaymentRead] = []
-    for merchant_name, items in merchant_groups.items():
-        ordered = sorted(items, key=lambda item: item[0].transaction_date)
+    for merchant_name, merchant_items in merchant_groups.items():
+        ordered = sorted(merchant_items, key=lambda item: item[0].transaction_date)
         if len(ordered) < 2:
             continue
         gaps = [
@@ -336,11 +336,13 @@ def analytics_report(
     recurring.sort(key=lambda item: (-item.average_amount, item.merchant))
 
     anomalies: list[SpendingAnomalyRead] = []
-    for category_name, items in category_transactions.items():
-        if len(items) < 3:
+    for category_name, category_items in category_transactions.items():
+        if len(category_items) < 3:
             continue
-        average = sum((amount for _, _, amount in items), ZERO) / len(items)
-        for transaction, merchant_name, amount in items:
+        average = sum((amount for _, _, amount in category_items), ZERO) / len(
+            category_items
+        )
+        for transaction, merchant_name, amount in category_items:
             multiple = amount / average if average else ZERO
             if amount - average >= Decimal("50") and multiple >= Decimal("1.8"):
                 anomalies.append(

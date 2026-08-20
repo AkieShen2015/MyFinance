@@ -97,6 +97,8 @@ def test_dashboard_analytics_are_consistent_and_fill_months(session: Session) ->
 
 
 def test_dashboard_rejects_an_inverted_period(session: Session) -> None:
+    asyncio.run(seed_mock_data(session))
+
     def override_database() -> Generator[Session, None, None]:
         yield session
 
